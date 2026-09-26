@@ -23,7 +23,7 @@ export default function Navbar({ activeSection, setActiveSection }) {
           </div>
           <div>
             <div className="flex items-center gap-2">
-              <span className="font-bold text-white tracking-wide text-base">SENTINEL-CV</span>
+              <span className="font-bold text-white tracking-wide text-base">BITSTORM</span>
               <span className="text-[10px] uppercase font-semibold px-2 py-0.5 rounded-full bg-cyan-950 text-cyan-400 border border-cyan-800/60">
                 WIUT 2026
               </span>

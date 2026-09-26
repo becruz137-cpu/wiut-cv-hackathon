@@ -91,7 +91,7 @@ export default function Report() {
           <div className="text-cyan-300">git clone https://github.com/becruz137-cpu/wiut-cv-hackathon.git</div>
           <div className="text-cyan-300">cd wiut-cv-hackathon &amp;&amp; pip install -r requirements.txt</div>
           <div className="text-slate-500 pt-2"># 2. Execute submission harness on videos directory</div>
-          <div className="text-emerald-400">python run_submission.py --videos samples/ --out predictions.json --team SENTINEL-CV</div>
+          <div className="text-emerald-400">python run_submission.py --videos samples/ --out predictions.json --team BITSTORM</div>
           <div className="text-slate-500 pt-2"># 3. Validate temporal IoU format integrity</div>
           <div className="text-emerald-400">python evaluate.py --pred predictions.json --validate-only</div>
         </div>

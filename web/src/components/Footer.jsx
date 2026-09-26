@@ -12,7 +12,7 @@ export default function Footer() {
             <Shield className="w-4 h-4" />
           </div>
           <div>
-            <div className="text-white font-bold text-sm tracking-wide">SENTINEL-CV</div>
+            <div className="text-white font-bold text-sm tracking-wide">BITSTORM</div>
             <div className="text-[11px] text-slate-500">WIUT Hackathon 2026 • Computer Vision Elimination Track</div>
           </div>
         </div>

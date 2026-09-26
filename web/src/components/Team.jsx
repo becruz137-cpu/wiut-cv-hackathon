@@ -6,15 +6,15 @@ import { GithubIcon, LinkedinIcon } from './Icons';
 export default function Team() {
   const members = [
     {
-      name: 'Team Captain',
+      name: 'Bexruz Saydaliyev',
       handle: 'becruz137-cpu',
-      role: 'Team Captain & Lead ML/CV Engineer',
+      role: 'Team Captain · Lead ML/CV Engineer',
       focus: 'Computer Vision & Deep Learning',
-      bio: 'Architected the core end-to-end traffic event detection pipeline. Integrated YOLOv8n neural weights with ByteTrack association, designed the spatio-temporal rule gating engine, and optimized temporal IoU boundaries to eliminate false alarms.',
+      bio: 'Architected the full end-to-end CV pipeline. Integrated YOLOv8n with ByteTrack, designed 5 spatio-temporal event rules, tuned thresholds against real CCTV footage, and optimized runtime to 0.47× of the budget limit.',
       contributions: [
         'End-to-end pipeline implementation (solution.py)',
         'YOLOv8n object detection & ByteTrack tracking integration',
-        'Deterministic rule heuristics (stopped vehicle, jaywalking, collision IoU)',
+        'Stopped vehicle, jaywalking, congestion, accident & wrong-way rules',
         'Temporal stride downsampling & runtime budget optimization'
       ],
       projects: [
@@ -25,51 +25,52 @@ export default function Team() {
       linkedin: '#'
     },
     {
-      name: 'Frontend & Systems Lead',
-      handle: 'teammate-2',
-      role: 'Full-Stack & UX Engineer',
+      name: "Komronxo'ja Asadullaxo'jayev",
+      handle: 'en1gma0',
+      role: 'Full-Stack & Systems Engineer',
       focus: 'Web Systems & Interactive Analytics',
-      bio: 'Engineered the team evaluation website, interactive video playback timeline scrubber, real-time client inference simulator, and responsive operator UI according to the official hackathon rubrics.',
+      bio: 'Built the team evaluation website, interactive video playback timeline, real-time event detection HUD, and responsive operator dashboard. Handled full CI/CD deployment to GitHub Pages.',
       contributions: [
         'Interactive timeline scrubber with video timestamp seek synchronization',
         'Client-side video upload interface & predictions exporter',
         'Responsive dark-mode UI design with mobile optimization',
-        'Real-time event HUD and operator violation alert feeds'
+        'GitHub Pages CI/CD deployment pipeline'
       ],
       projects: [
         'Real-time IoT Telemetry Streamer',
         'High-Performance WebGL Video Analytics Player'
       ],
-      github: 'https://github.com',
+      github: 'https://github.com/en1gma0',
       linkedin: '#'
     },
     {
-      name: 'Data & Benchmark Lead',
-      handle: 'teammate-3',
-      role: 'Data & Systems Evaluation Engineer',
-      focus: 'Evaluation Engineering & EDA',
-      bio: 'Conducted comprehensive exploratory data analysis (EDA) of the CCTV footage, audited camera perspective foreshortening, verified metric adherence with evaluate.py, and profiled hardware runtime budgets.',
+      name: 'Nurmuxammad Dilshodov',
+      handle: 'nurmuxammad',
+      role: 'Data & Evaluation Engineer',
+      focus: 'EDA · Benchmarking · Validation',
+      bio: 'Led exploratory data analysis of all 4 CCTV clips, audited camera perspective distortion, verified full format compliance with evaluate.py, and profiled hardware runtime budgets across all sample videos.',
       contributions: [
-        'Sample CCTV footage statistical profiling & density analysis',
+        'CCTV footage EDA — velocity, class & density profiling',
         'Temporal IoU format compliance auditing (evaluate.py)',
-        'False alarm error analysis & threshold validation',
-        'Hardware execution profiling under 3.0× time budget cutoff'
+        'False alarm root-cause analysis & threshold calibration',
+        'Hardware runtime profiling under 3.0× budget cutoff'
       ],
       projects: [
         'Automated Machine Learning Benchmark Harness',
-        'Urban Roadside Traffic Flow Synthesizer'
+        'Urban Roadside Traffic Flow Analytics'
       ],
-      github: 'https://github.com',
+      github: 'https://github.com/nurmuxammad',
       linkedin: '#'
     }
   ];
+
 
   return (
     <section id="team" className="py-16 border-t border-slate-800/60 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
       <div className="max-w-3xl mb-12">
         <div className="flex items-center gap-2 text-cyan-400 text-xs font-bold tracking-widest uppercase mb-1">
           <Users className="w-4 h-4" />
-          Engineering Roster (10% Weight)
+          BITSTORM · Turin Polytechnic University in Tashkent
         </div>
         <h2 className="text-3xl font-extrabold text-white tracking-tight">
           The Engineering Squad
@@ -77,6 +78,7 @@ export default function Team() {
         <p className="text-slate-400 text-sm mt-2 leading-relaxed">
           Three dedicated engineering roles covering model architecture, full-stack product interfaces, and benchmark evaluation integrity.
         </p>
+
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">

@@ -125,7 +125,7 @@ export default function LiveDemo() {
 
   const downloadJson = () => {
     const data = {
-      team: "SENTINEL-CV",
+      team: "BITSTORM",
       video: videoName,
       events: events.map(e => [e.start, e.end, e.label]),
       validation_status: "PASSED (0 errors, 100% compliant)"
