@@ -1,103 +1,336 @@
 """
-solution.py — the ONLY file a team has to implement.
+solution.py — WIUT Hackathon 2026, CV Track.
 
-The organizers' harness (run_submission.py) imports this module and calls:
-
-    detect_events(video_path)  -> [[start_sec, end_sec, label], ...]    # Part A
-    RiskEstimator().reset(meta); .step(frame, t_sec) -> float           # Part B (optional)
-
-Keep the names and signatures exactly as they are. Everything else — models,
-tracking, rules, helper modules under src/ — is up to you.
-
-Labels must come from CLASSES. You may REMOVE classes you never predict;
-do not add new ids.
+Pipeline:
+  1. Sample every FRAME_STRIDE-th frame with OpenCV
+  2. Detect with YOLOv8n (vehicles + pedestrians)
+  3. Track with ByteTrack (built into ultralytics)
+  4. Apply per-frame rules -> per-class flags
+  5. Merge consecutive flags into [start, end, label] segments
 """
 from __future__ import annotations
 
+import collections
 import numpy as np
+import cv2
+from ultralytics import YOLO
 
-# Official class ids (14). See the task description for definitions and
-# start/end conventions. Remove entries you never predict; never add.
+# ── official class ids ──────────────────────────────────────────────────────
 CLASSES: list[str] = [
-    "accident",            # collision between road users / with a fixed object
-    "near_miss",           # sharp braking or swerving to avoid a collision, no contact
-    "red_light",           # crossing the stop line on red
-    "wrong_way",           # driving against the traffic direction / in the oncoming lane
-    "illegal_u_turn",      # U-turn where prohibited
-    "stopped_vehicle",     # stationary on the carriageway >= 10 s, not queued at a signal
-    "jaywalking",          # pedestrian on the carriageway outside a crossing
-    "failure_to_yield",    # driving through a crossing while a pedestrian is on it
-    "illegal_turn",        # turn from the wrong lane or in a prohibited direction
-    "solid_line_crossing", # lane change / manoeuvre across a solid marking
-    "stop_line",           # stopped past the stop line on red
-    "congestion",          # standstill / crawling traffic across all lanes of a direction
-    "road_obstacle",       # debris, animal or fallen object on the carriageway
-    "fire_smoke",          # visible fire or smoke from a vehicle or on the road
+    "accident",
+    "near_miss",
+    "red_light",
+    "wrong_way",
+    "illegal_u_turn",
+    "stopped_vehicle",
+    "jaywalking",
+    "failure_to_yield",
+    "illegal_turn",
+    "solid_line_crossing",
+    "stop_line",
+    "congestion",
+    "road_obstacle",
+    "fire_smoke",
 ]
 
-# Anticipation horizon used by the metric (seconds). step() should return
-# P(an `accident` starts within the next RISK_HORIZON_SEC seconds).
 RISK_HORIZON_SEC = 5.0
 
+# ── tuneable constants ───────────────────────────────────────────────────────
+MODEL_PATH       = "yolov8n.pt"   # auto-downloaded on first run (~6 MB)
+FRAME_STRIDE     = 3              # process every 3rd frame (speed vs accuracy)
+CONF_THRESH      = 0.40           # YOLO confidence threshold (raised to reduce noise)
+IOU_THRESH       = 0.45           # NMS IoU threshold
 
+# Event merging
+MIN_EVENT_SEC    = 2.0            # drop segments shorter than this
+GAP_MERGE_SEC    = 2.0            # merge same-class gaps shorter than this
+
+# Minimum consecutive triggered frames before opening a segment (anti-flicker)
+MIN_CONSEC: dict[str, int] = {
+    "accident":        8,   # ~0.8s sustained overlap/deceleration (strict)
+    "stopped_vehicle": 30,  # ~3s of being stopped before flagging
+    "congestion":      10,  # ~1s of slow traffic
+    "jaywalking":      8,   # ~0.8s person on road
+    "wrong_way":       10,  # ~1s sustained wrong direction
+}
+
+# Stopped vehicle
+STOP_SPEED_PX    = 2.0            # pixels/frame below which a vehicle is "stopped"
+STOP_MIN_FRAMES  = 30             # must be stopped for this many processed frames
+
+# Congestion
+CONG_SPEED_THR   = 4.0            # mean fleet speed below this => congestion (px/frame)
+CONG_MIN_VCOUNT  = 4              # need at least N vehicles in frame
+
+# Jaywalking — road region (fraction of frame height)
+ROAD_Y_START     = 0.60           # only bottom 40% of frame is "road" (raised from 0.35)
+ROAD_X_MARGIN    = 0.08           # ignore edges
+
+# Accident — sudden velocity change
+ACC_SPEED_DROP   = 30.0           # px/frame sudden deceleration (strict — avoid jitter FP)
+ACC_OVERLAP_IOU  = 0.45           # boxes must very heavily overlap (strict — avoid perspective FP)
+
+# Wrong way — minimum fraction of vehicles going wrong direction
+WRONG_WAY_FRAC   = 0.30           # at least 30% going against dominant flow
+
+# YOLO class indices (COCO)
+COCO_VEHICLE  = {2, 3, 5, 7}     # car, motorbike, bus, truck
+COCO_PERSON   = {0}
+COCO_FIRE     = set()             # yolov8n not trained on fire; placeholder
+
+
+# ── model (loaded once) ──────────────────────────────────────────────────────
+_model: YOLO | None = None
+
+def _get_model() -> YOLO:
+    global _model
+    if _model is None:
+        _model = YOLO(MODEL_PATH)
+    return _model
+
+
+# ── geometry helpers ─────────────────────────────────────────────────────────
+def _box_center(box):
+    x1, y1, x2, y2 = box
+    return ((x1 + x2) / 2, (y1 + y2) / 2)
+
+def _box_iou(a, b):
+    ax1, ay1, ax2, ay2 = a
+    bx1, by1, bx2, by2 = b
+    ix1, iy1 = max(ax1, bx1), max(ay1, by1)
+    ix2, iy2 = min(ax2, bx2), min(ay2, by2)
+    iw, ih = max(0, ix2 - ix1), max(0, iy2 - iy1)
+    inter = iw * ih
+    union = (ax2-ax1)*(ay2-ay1) + (bx2-bx1)*(by2-by1) - inter
+    return inter / union if union > 0 else 0.0
+
+
+# ── segment post-processing ──────────────────────────────────────────────────
+def _flags_to_segments(flags: dict[str, list[tuple[float, float]]]) -> list[list]:
+    """
+    flags: {label: [(t_start, t_end), ...]}
+    Returns [[start, end, label], ...] after merging and filtering.
+    """
+    events = []
+    for label, intervals in flags.items():
+        if not intervals:
+            continue
+        # sort
+        intervals.sort()
+        # merge gaps
+        merged = [list(intervals[0])]
+        for s, e in intervals[1:]:
+            if s - merged[-1][1] <= GAP_MERGE_SEC:
+                merged[-1][1] = max(merged[-1][1], e)
+            else:
+                merged.append([s, e])
+        # filter short
+        for s, e in merged:
+            if e - s >= MIN_EVENT_SEC:
+                events.append([round(s, 3), round(e, 3), label])
+    events.sort()
+    return events
+
+
+# ── main detection function ──────────────────────────────────────────────────
 def detect_events(video_path: str) -> list[list]:
-    """Part A — traffic event detection.
+    """Part A — detect traffic events in a video."""
+    model = _get_model()
+    cap = cv2.VideoCapture(video_path)
+    if not cap.isOpened():
+        return []
 
-    Args:
-        video_path: path to one .mp4 file. You may open it any way you like
-            (OpenCV, decord, PyAV, ffmpeg), read it several times, sample
-            frames, run batched models — anything goes.
+    fps   = cap.get(cv2.CAP_PROP_FPS) or 25.0
+    W     = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+    H     = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
 
-    Returns:
-        A list of events, each ``[start_sec, end_sec, label]`` with
-        ``0 <= start_sec < end_sec <= duration`` (floats, seconds from the
-        first frame) and ``label in CLASSES``. Return ``[]`` if nothing
-        happened. Segments of the same class must not overlap.
+    # per-track history: {track_id: deque of (cx, cy)}
+    track_hist: dict[int, collections.deque] = collections.defaultdict(
+        lambda: collections.deque(maxlen=15)
+    )
+    # per-track: last seen box
+    track_box: dict[int, tuple] = {}
 
-    A typical pipeline:
-        1. sample frames (every 2nd–5th frame is usually enough),
-        2. detect road users (YOLO / RT-DETR) and track them (ByteTrack),
-        3. turn trajectories + scene layout (lanes, stop line, crossing)
-           into per-frame flags for each class,
-        4. merge consecutive flags into segments, drop blips < 0.5 s,
-           merge gaps < 1 s,
-        5. optionally re-score `accident` / `near_miss` candidates with a
-           learned clip classifier.
-    """
-    # TODO: replace this stub with your pipeline.
-    return []
+    # accumulators for each label: list of (t_start, t_end)
+    seg_acc: dict[str, list] = {c: [] for c in CLASSES}
+
+    # per-label "currently active" window start
+    active: dict[str, float | None] = {c: None for c in CLASSES}
+
+    # consecutive frame counter — must reach MIN_CONSEC before opening
+    consec: dict[str, int] = {c: 0 for c in CLASSES}
+
+    def _tick_true(label, t):
+        """Called when condition is TRUE this frame."""
+        consec[label] += 1
+        if consec[label] >= MIN_CONSEC.get(label, 1) and active[label] is None:
+            active[label] = t
+
+    def _tick_false(label, t_end):
+        """Called when condition is FALSE this frame — close any open segment."""
+        consec[label] = 0
+        if active[label] is not None:
+            seg_acc[label].append((active[label], t_end))
+            active[label] = None
+
+    frame_idx = 0
+    while True:
+        ok, frame = cap.read()
+        if not ok:
+            break
+        if frame_idx % FRAME_STRIDE != 0:
+            frame_idx += 1
+            continue
+
+        t = frame_idx / fps
+
+        # ── run YOLO + ByteTrack ─────────────────────────────────────────
+        results = model.track(
+            frame,
+            persist=True,
+            conf=CONF_THRESH,
+            iou=IOU_THRESH,
+            tracker="bytetrack.yaml",
+            verbose=False,
+        )
+        res = results[0]
+
+        vehicles_this: list[tuple[int, tuple, tuple]] = []  # (tid, box, center)
+        persons_this:  list[tuple] = []                      # boxes
+
+        if res.boxes is not None and res.boxes.id is not None:
+            ids    = res.boxes.id.cpu().numpy().astype(int)
+            cls_np = res.boxes.cls.cpu().numpy().astype(int)
+            xyxy   = res.boxes.xyxy.cpu().numpy()
+
+            for tid, cls_id, box in zip(ids, cls_np, xyxy):
+                cx, cy = _box_center(box)
+                track_hist[tid].append((cx, cy))
+                track_box[tid] = tuple(box)
+
+                if cls_id in COCO_VEHICLE:
+                    vehicles_this.append((tid, tuple(box), (cx, cy)))
+                elif cls_id in COCO_PERSON:
+                    persons_this.append(tuple(box))
+
+        # ── per-frame speed for tracked vehicles ──────────────────────────
+        def _speed(tid):
+            h = track_hist[tid]
+            if len(h) < 2:
+                return 999.0
+            dx = h[-1][0] - h[-2][0]
+            dy = h[-1][1] - h[-2][1]
+            return (dx*dx + dy*dy) ** 0.5
+
+        # ─────────────────────────────────────────────────────────────────
+        # RULE 1: stopped_vehicle
+        # A vehicle moving very slowly for sustained frames (not in queue)
+        # ─────────────────────────────────────────────────────────────────
+        stopped_flag = any(
+            _speed(tid) < STOP_SPEED_PX and len(track_hist[tid]) >= 10
+            for tid, _, _ in vehicles_this
+        )
+        if stopped_flag:
+            _tick_true("stopped_vehicle", t)
+        else:
+            _tick_false("stopped_vehicle", t)
+
+        # ─────────────────────────────────────────────────────────────────
+        # RULE 2: congestion
+        # Mean speed of all tracked vehicles is very low AND >= N vehicles
+        # ─────────────────────────────────────────────────────────────────
+        if len(vehicles_this) >= CONG_MIN_VCOUNT:
+            speeds = [_speed(tid) for tid, _, _ in vehicles_this]
+            mean_spd = sum(speeds) / len(speeds)
+            if mean_spd < CONG_SPEED_THR:
+                _tick_true("congestion", t)
+            else:
+                _tick_false("congestion", t)
+        else:
+            _tick_false("congestion", t)
+
+        # ─────────────────────────────────────────────────────────────────
+        # RULE 3: jaywalking
+        # A person detected in the lower road area (not on the pavement)
+        # ─────────────────────────────────────────────────────────────────
+        jay_flag = False
+        for px1, py1, px2, py2 in persons_this:
+            cy_person = (py1 + py2) / 2
+            cx_person = (px1 + px2) / 2
+            on_road_y = cy_person / H > ROAD_Y_START
+            on_road_x = ROAD_X_MARGIN * W < cx_person < (1 - ROAD_X_MARGIN) * W
+            if on_road_y and on_road_x:
+                jay_flag = True
+                break
+        if jay_flag:
+            _tick_true("jaywalking", t)
+        else:
+            _tick_false("jaywalking", t)
+
+        # ─────────────────────────────────────────────────────────────────
+        # RULE 4: accident
+        # Two vehicles whose boxes heavily overlap OR sudden large decel
+        # ─────────────────────────────────────────────────────────────────
+        acc_flag = False
+        vboxes = [b for _, b, _ in vehicles_this]
+        for i in range(len(vboxes)):
+            for j in range(i + 1, len(vboxes)):
+                if _box_iou(vboxes[i], vboxes[j]) > ACC_OVERLAP_IOU:
+                    acc_flag = True
+                    break
+        if not acc_flag:
+            for tid, _, _ in vehicles_this:
+                h = track_hist[tid]
+                if len(h) >= 4:
+                    recent = ((h[-1][0]-h[-2][0])**2 + (h[-1][1]-h[-2][1])**2)**0.5
+                    prev   = ((h[-3][0]-h[-4][0])**2 + (h[-3][1]-h[-4][1])**2)**0.5
+                    if prev - recent > ACC_SPEED_DROP:
+                        acc_flag = True
+                        break
+        if acc_flag:
+            _tick_true("accident", t)
+        else:
+            _tick_false("accident", t)
+
+        # ─────────────────────────────────────────────────────────────────
+        # RULE 5: wrong_way
+        # >= WRONG_WAY_FRAC of vehicles moving against dominant direction
+        # ─────────────────────────────────────────────────────────────────
+        if len(vehicles_this) >= 3:
+            dy_list = []
+            for tid, _, _ in vehicles_this:
+                h = track_hist[tid]
+                if len(h) >= 2:
+                    dy_list.append(h[-1][1] - h[-2][1])
+            if len(dy_list) >= 3:
+                dominant = 1 if sum(dy_list) > 0 else -1
+                wrong = sum(1 for dy in dy_list if dy * dominant < -2)
+                if wrong / len(dy_list) >= WRONG_WAY_FRAC and wrong < len(dy_list):
+                    _tick_true("wrong_way", t)
+                else:
+                    _tick_false("wrong_way", t)
+            else:
+                _tick_false("wrong_way", t)
+        else:
+            _tick_false("wrong_way", t)
+
+        frame_idx += 1
+
+    # close any still-open windows at video end
+    t_end = frame_idx / fps
+    for label in CLASSES:
+        if active[label] is not None:
+            seg_acc[label].append((active[label], t_end))
+
+    cap.release()
+    return _flags_to_segments(seg_acc)
 
 
+# ── Part B stub (not implemented) ────────────────────────────────────────────
 class RiskEstimator:
-    """Part B — causal accident anticipation (optional, bonus).
-
-    The harness calls ``reset(meta)`` once per video and then ``step`` for
-    EVERY frame, in order. ``step`` must use only the frames it has seen so
-    far: do not open the video file inside this class, and do not reuse
-    Part A results that were computed with access to future frames.
-    """
-
     def reset(self, meta: dict) -> None:
-        """Called once before the first frame of each video.
-
-        meta = {"video_id": str, "fps": float, "width": int, "height": int,
-                "n_frames": int}
-        """
         self.meta = meta
         self.last_score = 0.0
 
     def step(self, frame: np.ndarray, t_sec: float) -> float:
-        """Return P(accident starts within the next RISK_HORIZON_SEC s).
-
-        Args:
-            frame: BGR uint8 array of shape (H, W, 3) — OpenCV convention.
-            t_sec: timestamp of this frame in seconds.
-
-        Returns:
-            A float in [0, 1]. Skipping frames internally and returning the
-            previous score is fine; the harness still expects a value for
-            every call.
-        """
-        # TODO: replace this stub. A simple strong baseline: track vehicles,
-        # estimate time-to-collision between pairs, map min TTC -> risk.
         return self.last_score
