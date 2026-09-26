@@ -14,6 +14,7 @@ weights/*.onnx
 
 # Predictions output
 predictions*.json
+!predictions_samples.json
 
 # Python
 __pycache__/
@@ -47,3 +48,9 @@ Thumbs.db
 # Logs & temp
 *.log
 runs/
+
+# Web dependencies & builds
+web/node_modules/
+node_modules/
+web/dist/
+

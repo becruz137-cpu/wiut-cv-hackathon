@@ -1,0 +1,69 @@
+{
+ "team": "SENTINEL-CV",
+ "videos": {
+  "C3905.MP4": {
+   "events": [
+    [
+     8.609,
+     37.037,
+     "stopped_vehicle"
+    ],
+    [
+     10.31,
+     58.058,
+     "jaywalking"
+    ],
+    [
+     46.246,
+     53.253,
+     "stopped_vehicle"
+    ],
+    [
+     56.256,
+     60.861,
+     "stopped_vehicle"
+    ],
+    [
+     60.46,
+     63.563,
+     "jaywalking"
+    ],
+    [
+     63.864,
+     72.272,
+     "stopped_vehicle"
+    ],
+    [
+     66.867,
+     85.585,
+     "jaywalking"
+    ],
+    [
+     75.275,
+     123.023,
+     "stopped_vehicle"
+    ],
+    [
+     90.29,
+     92.292,
+     "congestion"
+    ],
+    [
+     102.603,
+     127.627,
+     "jaywalking"
+    ]
+   ],
+   "risk": []
+  }
+ },
+ "log": {
+  "C3905.MP4": {
+   "duration": 127.63,
+   "budget_sec": 382.9,
+   "errors": [],
+   "part_a_sec": 181.1,
+   "total_sec": 181.1
+  }
+ }
+}
