@@ -328,9 +328,45 @@ def detect_events(video_path: str) -> list[list]:
 
 # ── Part B stub (not implemented) ────────────────────────────────────────────
 class RiskEstimator:
+    def __init__(self):
+        self.prev_gray = None
+        self.history = []
+        self.frame_idx = 0
+        self.last_score = 0.0
+
     def reset(self, meta: dict) -> None:
-        self.meta = meta
+        self.prev_gray = None
+        self.history = []
+        self.frame_idx = 0
         self.last_score = 0.0
 
     def step(self, frame: np.ndarray, t_sec: float) -> float:
-        return self.last_score
+        self.frame_idx += 1
+        
+        # Process at ~5 FPS to keep overhead practically zero
+        if self.frame_idx % 5 != 0:
+            return self.last_score
+
+        # Downscale dramatically for speed
+        small = cv2.resize(frame, (160, 90))
+        gray = cv2.cvtColor(small, cv2.COLOR_BGR2GRAY)
+
+        score = 0.0
+        if self.prev_gray is not None:
+            diff = cv2.absdiff(gray, self.prev_gray)
+            movement = float(np.mean(diff))
+            
+            self.history.append(movement)
+            if len(self.history) > 30:
+                self.history.pop(0)
+
+            if len(self.history) > 10:
+                avg_move = np.mean(self.history[:-1])
+                if movement > avg_move * 2.5 and movement > 5.0:
+                    score = 0.6 
+                elif movement > avg_move * 1.5:
+                    score = 0.3 
+
+        self.prev_gray = gray
+        self.last_score = score
+        return score

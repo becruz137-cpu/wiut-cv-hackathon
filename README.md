@@ -100,3 +100,4 @@ Tested on a standard low-power CPU machine without dedicated GPU acceleration:
 ## 6. Live Interactive Demo & Website
 A fully interactive web dashboard with live video upload, synchronized timeline seeking, statistical EDA, and reproduction logs is hosted at:
 👉 **[Team Live Demo Website](https://becruz137-cpu.github.io/wiut-cv-hackathon/)**
+

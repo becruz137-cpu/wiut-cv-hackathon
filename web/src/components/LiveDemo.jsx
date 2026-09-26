@@ -151,7 +151,7 @@ export default function LiveDemo() {
             Live Video Upload & Event Analysis Demo
           </h2>
           <p className="text-slate-400 text-sm mt-1 max-w-2xl">
-            Upload an MP4 traffic clip (≤ 2 mins, up to 100MB) or inspect our pre-computed evaluation run on the official camera footage.
+            Upload an MP4 traffic clip (Max 2 mins, up to 100MB) or inspect our pre-computed evaluation run on the official camera footage.
           </p>
         </div>
 
