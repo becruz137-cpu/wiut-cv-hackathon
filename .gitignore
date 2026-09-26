@@ -15,6 +15,7 @@ weights/*.onnx
 # Predictions output
 predictions*.json
 !predictions_samples.json
+!predictions_final.json
 
 # Python
 __pycache__/
