@@ -1,5 +1,7 @@
+import React from 'react';
 import { Users, ExternalLink, Code2, Award, Sparkles } from 'lucide-react';
 import { GithubIcon, LinkedinIcon } from './Icons';
+
 
 export default function Team() {
   const members = [

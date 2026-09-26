@@ -1,5 +1,7 @@
+import React from 'react';
 import { FileText, Download, CheckCircle, ArrowUpRight, Terminal, RefreshCw } from 'lucide-react';
 import { GithubIcon } from './Icons';
+
 
 export default function Report() {
   return (

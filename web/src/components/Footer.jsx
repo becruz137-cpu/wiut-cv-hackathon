@@ -1,5 +1,7 @@
+import React from 'react';
 import { Shield, Heart } from 'lucide-react';
 import { GithubIcon } from './Icons';
+
 
 export default function Footer() {
   return (

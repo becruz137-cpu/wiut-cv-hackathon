@@ -1,3 +1,4 @@
+import React, { useState } from 'react';
 import { Shield, Cpu, Activity, Video, Users, FileText, ExternalLink, Menu, X } from 'lucide-react';
 import { GithubIcon } from './Icons';
 
