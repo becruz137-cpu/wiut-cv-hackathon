@@ -50,20 +50,20 @@ MIN_CONSEC: dict[str, int] = {
     "accident":        8,   # ~0.8s sustained overlap/deceleration (strict)
     "stopped_vehicle": 30,  # ~3s of being stopped before flagging
     "congestion":      10,  # ~1s of slow traffic
-    "jaywalking":      8,   # ~0.8s person on road
+    "jaywalking":      25,  # ~2.5s person on road with moving vehicles
     "wrong_way":       10,  # ~1s sustained wrong direction
 }
 
 # Stopped vehicle
-STOP_SPEED_PX    = 2.0            # pixels/frame below which a vehicle is "stopped"
+STOP_SPEED_PX    = 0.8            # px/frame — truly stationary only (lowered from 2.0)
 STOP_MIN_FRAMES  = 30             # must be stopped for this many processed frames
 
 # Congestion
-CONG_SPEED_THR   = 4.0            # mean fleet speed below this => congestion (px/frame)
-CONG_MIN_VCOUNT  = 4              # need at least N vehicles in frame
+CONG_SPEED_THR   = 7.0            # mean fleet speed below this => congestion (raised from 5.5)
+CONG_MIN_VCOUNT  = 3              # need at least N vehicles in frame (lowered from 4)
 
 # Jaywalking — road region (fraction of frame height)
-ROAD_Y_START     = 0.60           # only bottom 40% of frame is "road" (raised from 0.35)
+ROAD_Y_START     = 0.75           # only bottom 25% of frame is "road" (tightened from 0.68)
 ROAD_X_MARGIN    = 0.08           # ignore edges
 
 # Accident — sudden velocity change
@@ -226,10 +226,20 @@ def detect_events(video_path: str) -> list[list]:
         # RULE 1: stopped_vehicle
         # A vehicle moving very slowly for sustained frames (not in queue)
         # ─────────────────────────────────────────────────────────────────
-        stopped_flag = any(
-            _speed(tid) < STOP_SPEED_PX and len(track_hist[tid]) >= 10
+        # Red-light filter: if most vehicles are stopped simultaneously,
+        # it is a normal red light — NOT a stopped_vehicle incident.
+        # Only fire if a minority (<55%) of the fleet is stopped.
+        all_speeds = [
+            (_speed(tid) < STOP_SPEED_PX and len(track_hist[tid]) >= 10)
             for tid, _, _ in vehicles_this
-        )
+        ]
+        n_stopped = sum(all_speeds)
+        n_total   = len(all_speeds)
+        if n_total >= 2:
+            fleet_stopped_ratio = n_stopped / n_total
+            stopped_flag = n_stopped >= 1 and fleet_stopped_ratio < 0.55
+        else:
+            stopped_flag = n_stopped >= 1
         if stopped_flag:
             _tick_true("stopped_vehicle", t)
         else:
@@ -251,7 +261,8 @@ def detect_events(video_path: str) -> list[list]:
 
         # ─────────────────────────────────────────────────────────────────
         # RULE 3: jaywalking
-        # A person detected in the lower road area (not on the pavement)
+        # Person in lower road zone AND at least one vehicle is moving
+        # (if ALL vehicles stopped = red light = legal pedestrian crossing)
         # ─────────────────────────────────────────────────────────────────
         jay_flag = False
         for px1, py1, px2, py2 in persons_this:
@@ -262,6 +273,12 @@ def detect_events(video_path: str) -> list[list]:
             if on_road_y and on_road_x:
                 jay_flag = True
                 break
+        # Semantic filter: require at least one vehicle to be moving
+        # (suppresses false positives during red lights when ALL cars stop)
+        if jay_flag and len(vehicles_this) >= 2:
+            any_moving = any(_speed(tid) > 2.5 for tid, _, _ in vehicles_this)
+            if not any_moving:
+                jay_flag = False
         if jay_flag:
             _tick_true("jaywalking", t)
         else:
